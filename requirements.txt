@@ -8,3 +8,6 @@ Faker>=18,<40
 
 # Notebooks (Jupyter UI + kernel)
 jupyter>=1.0,<2
+
+# faker
+Faker>=18,<40

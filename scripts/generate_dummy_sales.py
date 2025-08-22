@@ -11,15 +11,27 @@ categories = ["Jackets", "Footwear", "Backpacks", "Trousers", "Shirts"]
 brands = ["RegattaX", "NorthPeak", "SummitGear", "TrailPro", "UrbanClimb"]
 genders = ["Men", "Women", "Unisex"]
 
-regions = ["North", "South", "East", "West"]
-# generate 20 stores across regions
+# Rough bounding boxes for UK regions
+region_coords = {
+    "North": {"lat": (53.5, 55.0), "lon": (-3.0, -1.0)},   # Manchester/Leeds/Newcastle
+    "South": {"lat": (50.8, 51.6), "lon": (-0.5, 0.5)},    # London/Brighton
+    "East":  {"lat": (52.3, 53.5), "lon": (0.2, 1.5)},     # Norwich/Cambridge
+    "West":  {"lat": (51.2, 52.5), "lon": (-3.5, -2.0)},   # Bristol/Cardiff
+}
+
+# generate 20 stores across regions with fixed lat/long
 stores = []
 for i in range(1, 21):
-    region = random.choice(regions)
+    region = random.choice(list(region_coords.keys()))
+    lat_range = region_coords[region]["lat"]
+    lon_range = region_coords[region]["lon"]
+
     stores.append({
         "StoreID": f"S{i:03d}",
         "StoreName": f"{region} Outlet {i}",
-        "Region": region
+        "Region": region,
+        "Latitude": round(random.uniform(*lat_range), 6),
+        "Longitude": round(random.uniform(*lon_range), 6)
     })
 
 promo_types = ["Seasonal", "Clearance", "Flash", "Bundle"]
@@ -31,29 +43,23 @@ dates = pd.date_range("2024-01-01", "2025-12-31", freq="D")
 def seasonal_multiplier(category: str, month: int) -> float:
     """Bump volume/value by category seasonality."""
     mult = 1.0
-    # Jackets & Trousers stronger in colder months
     if category in ["Jackets", "Trousers"] and month in [10, 11, 12, 1, 2]:
         mult *= np.random.uniform(1.1, 1.4)
-    # Backpacks & Shirts stronger in summer
     if category in ["Backpacks", "Shirts"] and month in [6, 7, 8]:
         mult *= np.random.uniform(1.05, 1.3)
     return mult
 
 def promo_probability(date: pd.Timestamp, category: str) -> float:
     """Return probability of a promo on this date for this category."""
-    p = 0.08  # base 8%
-    # Weekends slightly higher
+    p = 0.08
     if date.weekday() >= 5:
         p += 0.05
-    # End of month bump
     if date.day >= 26:
         p += 0.04
-    # Seasonal promos: winter for Jackets/Trousers, summer for Shirts/Backpacks
     if category in ["Jackets", "Trousers"] and date.month in [10, 11, 12, 1]:
         p += 0.05
     if category in ["Shirts", "Backpacks"] and date.month in [6, 7, 8]:
         p += 0.05
-    # Cap between 0 and 0.35
     return min(max(p, 0.0), 0.35)
 
 def promo_discount_pct(promo_type: str) -> float:
@@ -76,20 +82,21 @@ for i in range(n_rows):
     category = random.choice(categories)
     brand = random.choice(brands)
     gender = random.choice(genders)
-
     product = f"{brand} {category} {fake.word().capitalize()}"
 
     store = random.choice(stores)
     store_id = store["StoreID"]
     store_name = store["StoreName"]
     region = store["Region"]
+    latitude = store["Latitude"]
+    longitude = store["Longitude"]
 
     # Units and pricing
     units = np.random.randint(1, 5)
     base_price = np.random.randint(20, 200)
     list_price = round(base_price * np.random.uniform(0.9, 1.15), 2)
 
-    # Seasonality on demand/realised net sales
+    # Seasonality
     season_mult = seasonal_multiplier(category, month)
 
     # Promo decision
@@ -97,30 +104,23 @@ for i in range(n_rows):
     promo_type = random.choice(promo_types) if is_promo else None
     discount_pct = promo_discount_pct(promo_type) if is_promo else 0.0
 
-    # Apply discount to get net price; modest uplift in units during promo
     net_unit_price = round(list_price * (1 - discount_pct), 2)
     units_effective = units
     if is_promo:
-        # uplift units during promo
         units_effective = int(round(units * np.random.uniform(1.05, 1.3)))
         units_effective = max(units_effective, 1)
 
-    # Sales (after discount) with seasonality
     net_sales = round(units_effective * net_unit_price * season_mult, 2)
 
-    # Margin – assume margin based on list price, then discount erodes margin
     margin_pct_base = float(np.random.choice([0.35, 0.4, 0.45, 0.5]))
-    # simple model: discount reduces effective margin linearly
     effective_margin_pct = max(margin_pct_base - discount_pct * 0.6, 0.05)
     margin_value = round(net_sales * effective_margin_pct, 2)
 
     year = dt.year
-    # Budget based on planned growth; use net sales as the baseline heuristic
     planned_growth = np.random.uniform(1.03, 1.08)
     if year == 2024:
         budget = round(net_sales * np.random.uniform(0.92, 1.08), 2)
     else:
-        # approx last-year baseline by removing a small random variation
         budget = round(net_sales / np.random.uniform(0.96, 1.04) * planned_growth, 2)
 
     rows.append([
@@ -133,14 +133,16 @@ for i in range(n_rows):
         store_id,
         store_name,
         region,
-        units_effective,          # UnitsSold (after promo uplift)
-        list_price,               # pre-discount
-        discount_pct,             # 0–0.5
-        net_unit_price,           # after discount
-        round(units_effective * list_price, 2),  # GrossSales (before discount)
-        net_sales,                # NetSales (after discount)
-        effective_margin_pct,     # MarginPct (effective)
-        margin_value,             # MarginValue
+        latitude,
+        longitude,
+        units_effective,
+        list_price,
+        discount_pct,
+        net_unit_price,
+        round(units_effective * list_price, 2),
+        net_sales,
+        effective_margin_pct,
+        margin_value,
         bool(is_promo),
         promo_type,
         budget,
@@ -149,7 +151,7 @@ for i in range(n_rows):
 
 df = pd.DataFrame(rows, columns=[
     "InvoiceID","Date","Product","Category","Gender","Brand",
-    "StoreID","StoreName","Region",
+    "StoreID","StoreName","Region","Latitude","Longitude",
     "UnitsSold","ListPrice","DiscountPct","NetUnitPrice",
     "GrossSales","NetSales","MarginPct","MarginValue",
     "IsPromo","PromoType",
