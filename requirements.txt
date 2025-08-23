@@ -11,3 +11,6 @@ jupyter>=1.0,<2
 
 # faker
 Faker>=18,<40
+
+scikit-learn>=1.4,<2
+
