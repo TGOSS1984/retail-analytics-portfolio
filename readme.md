@@ -21,3 +21,16 @@ python -m venv .venv
 # activate venv (see instructions above)
 pip install pandas numpy faker jupyter matplotlib
 python scripts/generate_dummy_sales.py
+
+## Predictive Analysis
+- Aggregated transactions to **monthly NetSales** by Region & Category.
+- Benchmarked a **Seasonal-Naïve** baseline vs a **RandomForest** model with calendar + lag features.
+- Auto-selects the best model per group using **MAPE**.
+- Produces 3-month ahead forecasts → `data/predictions_monthly.csv` and a sample plot.
+
+**Run:**
+```bash
+pip install -r requirements.txt
+python scripts/predict_monthly_sales.py
+
+
