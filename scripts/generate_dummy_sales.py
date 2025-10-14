@@ -4,12 +4,81 @@ import random
 from faker import Faker
 from pathlib import Path
 
+from datetime import timedelta, date
+
+# --- ADD HERE: Retail week helpers (Sun–Sat, retail year starts Feb 1) ---
+def _retail_year_for(d: date) -> int:
+    feb1_current = date(d.year, 2, 1)
+    return d.year if d >= feb1_current else d.year - 1
+
+def _week1_bounds(retail_year: int):
+    start = date(retail_year, 2, 1)
+    end = start + timedelta(days=(5 - start.weekday()) % 7)  # first Saturday on/after Feb 1
+    return start, end
+
+def retail_week_info(d: date):
+    ry = _retail_year_for(d)
+    w1_start, w1_end = _week1_bounds(ry)
+
+    if d < w1_start:
+        ry -= 1
+        w1_start, w1_end = _week1_bounds(ry)
+
+    if w1_start <= d <= w1_end:
+        week_no = 1
+        wk_start = w1_start
+        wk_end = w1_end
+    else:
+        first_full_week_start = w1_end + timedelta(days=1)  # Sunday
+        days_since = (d - first_full_week_start).days
+        blocks = days_since // 7
+        week_no = 2 + blocks
+        wk_start = first_full_week_start + timedelta(days=blocks * 7)
+        wk_end = wk_start + timedelta(days=6)
+
+    return {
+        "RetailYear": ry,
+        "RetailWeek": week_no,
+        "RetailWeekStart": wk_start.isoformat(),
+        "RetailWeekEnd": wk_end.isoformat(),
+        "RetailWeekLabel": f"RY{ry}-W{week_no:02d}",
+    }
+# --- end helpers ---
+
 fake = Faker()
 
 # ======= Dimensions =======
 categories = ["Jackets", "Footwear", "Backpacks", "Trousers", "Shirts"]
 brands = ["RegattaX", "NorthPeak", "SummitGear", "TrailPro", "UrbanClimb"]
 genders = ["Men", "Women", "Unisex"]
+
+# --- NEW: Category weighting, price bands, and unit multipliers ---
+category_weights = {
+    "Jackets": 0.30,
+    "Footwear": 0.20,
+    "Backpacks": 0.15,
+    "Trousers": 0.20,
+    "Shirts": 0.15,
+}
+
+# Base price bands (exclusive upper bound, to match np.random.randint behavior)
+price_ranges = {
+    "Jackets": (80, 200),     # 80–199
+    "Footwear": (60, 150),    # 60–149
+    "Backpacks": (30, 100),   # 30–99
+    "Trousers": (40, 120),    # 40–119
+    "Shirts": (20, 70),       # 20–69
+}
+
+# Relative unit volume factors (higher for cheaper, faster-moving categories)
+unit_factors = {
+    "Jackets": 1.0,
+    "Footwear": 1.2,
+    "Backpacks": 1.5,
+    "Trousers": 1.1,
+    "Shirts": 1.6,
+}
+# --- end NEW ---
 
 # Rough bounding boxes for UK regions
 region_coords = {
@@ -79,7 +148,13 @@ for i in range(n_rows):
     dt = random.choice(dates)
     month = dt.month
 
-    category = random.choice(categories)
+    # --- UPDATED: weighted category choice ---
+    category = random.choices(
+        population=categories,
+        weights=[category_weights[c] for c in categories],
+        k=1
+    )[0]
+
     brand = random.choice(brands)
     gender = random.choice(genders)
     product = f"{brand} {category} {fake.word().capitalize()}"
@@ -91,10 +166,16 @@ for i in range(n_rows):
     latitude = store["Latitude"]
     longitude = store["Longitude"]
 
-    # Units and pricing
-    units = np.random.randint(1, 5)
-    base_price = np.random.randint(20, 200)
+    # --- UPDATED: category-based pricing and units ---
+    # Base units 1–4 then scaled by category factor (at least 1)
+    base_units = np.random.randint(1, 5)
+    units = max(int(round(base_units * unit_factors[category])), 1)
+
+    # Category price bands (np.random.randint upper bound is exclusive)
+    pr_lo, pr_hi = price_ranges[category]
+    base_price = np.random.randint(pr_lo, pr_hi)
     list_price = round(base_price * np.random.uniform(0.9, 1.15), 2)
+    # --- end UPDATED ---
 
     # Seasonality
     season_mult = seasonal_multiplier(category, month)
@@ -157,6 +238,12 @@ df = pd.DataFrame(rows, columns=[
     "IsPromo","PromoType",
     "Budget","Year"
 ])
+
+# --- ADD HERE: derive retail-week columns ---
+wk = df["Date"].apply(lambda s: retail_week_info(pd.to_datetime(s).date()))
+wk_df = pd.DataFrame(list(wk))
+df = pd.concat([df, wk_df], axis=1)
+# --- end add ---
 
 Path("data").mkdir(exist_ok=True, parents=True)
 df.to_csv("data/dummy_retail_sales.csv", index=False)
