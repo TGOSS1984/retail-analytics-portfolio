@@ -95,12 +95,20 @@ for i in range(1, 21):
     lat_range = region_coords[region]["lat"]
     lon_range = region_coords[region]["lon"]
 
+    # --- NEW: per-store weighting and performance multiplier ---
+    row_weight = float(np.random.lognormal(mean=0.0, sigma=0.6))  # row share (how often this store appears)
+    perf_mult = float(np.clip(np.random.normal(loc=1.0, scale=0.25), 0.6, 1.8))  # per-row performance on units
+    # --- end NEW ---
+
     stores.append({
         "StoreID": f"S{i:03d}",
         "StoreName": f"{region} Outlet {i}",
         "Region": region,
         "Latitude": round(random.uniform(*lat_range), 6),
-        "Longitude": round(random.uniform(*lon_range), 6)
+        "Longitude": round(random.uniform(*lon_range), 6),
+        # NEW internal fields (not written to CSV)
+        "RowWeight": row_weight,
+        "PerfMult": perf_mult,
     })
 
 promo_types = ["Seasonal", "Clearance", "Flash", "Bundle"]
@@ -159,7 +167,9 @@ for i in range(n_rows):
     gender = random.choice(genders)
     product = f"{brand} {category} {fake.word().capitalize()}"
 
-    store = random.choice(stores)
+    # --- UPDATED: weighted store choice by RowWeight ---
+    store = random.choices(stores, weights=[s["RowWeight"] for s in stores], k=1)[0]
+
     store_id = store["StoreID"]
     store_name = store["StoreName"]
     region = store["Region"]
@@ -167,9 +177,12 @@ for i in range(n_rows):
     longitude = store["Longitude"]
 
     # --- UPDATED: category-based pricing and units ---
-    # Base units 1–4 then scaled by category factor (at least 1)
+    # Base units 1–4 then scaled by category factor
     base_units = np.random.randint(1, 5)
     units = max(int(round(base_units * unit_factors[category])), 1)
+
+    # Apply store performance multiplier to units (before promo bump)
+    units = max(int(round(units * store["PerfMult"])), 1)
 
     # Category price bands (np.random.randint upper bound is exclusive)
     pr_lo, pr_hi = price_ranges[category]
